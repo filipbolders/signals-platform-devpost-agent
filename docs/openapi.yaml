@@ -1,0 +1,424 @@
+openapi: 3.1.0
+
+info:
+  title: Signals Platform Restricted Devpost API
+  version: 1.0.0
+  description: |
+    Restricted API contract between the private Signals Platform backend
+    and the isolated public Devpost investigation agent.
+
+    This API exposes only sanitised operational telemetry.
+    It does not expose customer data, evidence, media, precise locations,
+    credentials, internal administration functions, or production source code.
+
+servers:
+  - url: https://systemsstudio.eu/api/devpost/v1
+    description: Restricted production gateway
+  - url: http://127.0.0.1:8031/api/devpost/v1
+    description: Local synthetic demo server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      operationId: getPlatformHealth
+      summary: Return sanitised Signals Platform health
+      tags: [Health]
+      responses:
+        "200":
+          description: Current platform health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformHealth"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /modules:
+    get:
+      operationId: listModuleHealth
+      summary: Return sanitised health for approved modules
+      tags: [Modules]
+      responses:
+        "200":
+          description: Approved module health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [generated_at, modules]
+                properties:
+                  generated_at:
+                    type: string
+                    format: date-time
+                  modules:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModuleHealth"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /incidents:
+    get:
+      operationId: listSanitisedIncidents
+      summary: Return recent sanitised operational incidents
+      tags: [Incidents]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/IncidentStatus"
+      responses:
+        "200":
+          description: Sanitised incident list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [generated_at, incidents]
+                properties:
+                  generated_at:
+                    type: string
+                    format: date-time
+                  incidents:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IncidentSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /incidents/{incident_id}:
+    get:
+      operationId: getSanitisedIncident
+      summary: Return one sanitised operational incident
+      tags: [Incidents]
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^INC-[A-Z0-9-]{6,40}$"
+      responses:
+        "200":
+          description: Sanitised incident
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentDetail"
+        "404":
+          description: Incident not found
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /telemetry-summary:
+    get:
+      operationId: getTelemetrySummary
+      summary: Return aggregated application telemetry
+      tags: [Telemetry]
+      parameters:
+        - name: window_minutes
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [5, 15, 30, 60]
+            default: 15
+      responses:
+        "200":
+          description: Aggregated telemetry summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetrySummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /demo/incidents:
+    post:
+      operationId: createSyntheticIncident
+      summary: Create a synthetic competition demonstration incident
+      description: |
+        Available only when DEMO_MODE=true.
+
+        This endpoint must never create, alter, or delete production
+        signals, objects, evidence, media, customer records, or locations.
+      tags: [Demo]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyntheticIncidentRequest"
+      responses:
+        "201":
+          description: Synthetic incident created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentDetail"
+        "403":
+          description: Demo mode is disabled
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: restricted-api-token
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid restricted API token
+    RateLimited:
+      description: Request rate limit exceeded
+
+  schemas:
+    HealthState:
+      type: string
+      enum:
+        - healthy
+        - degraded
+        - unavailable
+        - unknown
+
+    IncidentStatus:
+      type: string
+      enum:
+        - open
+        - investigating
+        - mitigated
+        - resolved
+
+    Severity:
+      type: string
+      enum:
+        - info
+        - low
+        - medium
+        - high
+        - critical
+
+    PlatformHealth:
+      type: object
+      additionalProperties: false
+      required:
+        - generated_at
+        - platform
+        - status
+        - uptime_seconds
+        - api_latency_ms
+        - active_modules
+        - unhealthy_modules
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        platform:
+          type: string
+          const: signals-platform
+        status:
+          $ref: "#/components/schemas/HealthState"
+        version:
+          type: string
+          maxLength: 40
+        uptime_seconds:
+          type: integer
+          minimum: 0
+        api_latency_ms:
+          type: number
+          minimum: 0
+        active_modules:
+          type: integer
+          minimum: 0
+        unhealthy_modules:
+          type: integer
+          minimum: 0
+
+    ModuleHealth:
+      type: object
+      additionalProperties: false
+      required:
+        - module_id
+        - display_name
+        - status
+        - last_event_at
+        - error_count_15m
+      properties:
+        module_id:
+          type: string
+          enum:
+            - object-tracker
+            - gps-live-map
+            - rf-adapter-test
+            - telescope-dslr-observation
+        display_name:
+          type: string
+          maxLength: 80
+        status:
+          $ref: "#/components/schemas/HealthState"
+        last_event_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        request_count_15m:
+          type: integer
+          minimum: 0
+        error_count_15m:
+          type: integer
+          minimum: 0
+        latency_p95_ms:
+          type: number
+          minimum: 0
+
+    IncidentSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - incident_id
+        - created_at
+        - status
+        - severity
+        - module_id
+        - title
+        - synthetic
+      properties:
+        incident_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        status:
+          $ref: "#/components/schemas/IncidentStatus"
+        severity:
+          $ref: "#/components/schemas/Severity"
+        module_id:
+          type: string
+        title:
+          type: string
+          maxLength: 160
+        synthetic:
+          type: boolean
+
+    IncidentDetail:
+      allOf:
+        - $ref: "#/components/schemas/IncidentSummary"
+        - type: object
+          additionalProperties: false
+          required:
+            - summary
+            - symptoms
+            - telemetry_labels
+          properties:
+            summary:
+              type: string
+              maxLength: 1000
+            symptoms:
+              type: array
+              maxItems: 20
+              items:
+                type: string
+                maxLength: 240
+            telemetry_labels:
+              type: object
+              additionalProperties:
+                type: string
+              description: |
+                Sanitised Grafana labels only. Must not include secrets,
+                customer identifiers, precise coordinates, filenames,
+                personal information, or private endpoint URLs.
+            grafana_dashboard_path:
+              type:
+                - string
+                - "null"
+              maxLength: 300
+
+    TelemetrySummary:
+      type: object
+      additionalProperties: false
+      required:
+        - generated_at
+        - window_minutes
+        - requests_total
+        - errors_total
+        - latency_p50_ms
+        - latency_p95_ms
+        - events_received_total
+        - media_failures_total
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        window_minutes:
+          type: integer
+        requests_total:
+          type: integer
+          minimum: 0
+        errors_total:
+          type: integer
+          minimum: 0
+        latency_p50_ms:
+          type: number
+          minimum: 0
+        latency_p95_ms:
+          type: number
+          minimum: 0
+        events_received_total:
+          type: integer
+          minimum: 0
+        media_failures_total:
+          type: integer
+          minimum: 0
+        active_observation_sessions:
+          type: integer
+          minimum: 0
+
+    SyntheticIncidentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - scenario
+      properties:
+        scenario:
+          type: string
+          enum:
+            - module-timeout
+            - elevated-api-latency
+            - event-ingestion-stalled
+            - media-processing-failure
+            - service-restart
+        module_id:
+          type: string
+          enum:
+            - object-tracker
+            - gps-live-map
+            - rf-adapter-test
+            - telescope-dslr-observation
+        severity:
+          $ref: "#/components/schemas/Severity"
