@@ -1,0 +1,51 @@
+# Credentials and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+credentials.json
+service-account*.json
+secrets/
+private/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Runtime data
+data/
+logs/
+uploads/
+evidence/
+media/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Temporary and backup files
+*.bak
+*.tmp
+*.swp
+*~
