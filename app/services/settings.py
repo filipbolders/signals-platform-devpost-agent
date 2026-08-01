@@ -22,5 +22,14 @@ class Settings(BaseSettings):
         min_length=16,
     )
 
+    signals_platform_base_url: str = (
+        "http://127.0.0.1:8030/api/devpost/v1"
+    )
+    signals_platform_timeout_seconds: float = Field(
+        default=10.0,
+        gt=0,
+        le=60,
+    )
+
 
 settings = Settings()
