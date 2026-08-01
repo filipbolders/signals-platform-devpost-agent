@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -12,7 +12,7 @@ from app.models.contracts import (
 
 def test_platform_health_accepts_sanitised_data() -> None:
     model = PlatformHealth(
-        generated_at=datetime.now(UTC),
+        generated_at=datetime.now(timezone.utc),
         status=HealthState.HEALTHY,
         version="0.1.0",
         uptime_seconds=3600,
@@ -28,7 +28,7 @@ def test_platform_health_accepts_sanitised_data() -> None:
 def test_unknown_fields_are_rejected() -> None:
     with pytest.raises(ValidationError):
         PlatformHealth(
-            generated_at=datetime.now(UTC),
+            generated_at=datetime.now(timezone.utc),
             status=HealthState.HEALTHY,
             uptime_seconds=3600,
             api_latency_ms=12.4,
