@@ -6,6 +6,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Awaitable, Callable
 from uuid import uuid4
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -47,11 +48,18 @@ def _tool_result_failed(function_response: object) -> bool:
     return False
 
 
+AgentEventCallback = Callable[
+    [dict[str, object]],
+    Awaitable[None],
+]
+
+
 async def run_agent(
     question: str,
     *,
     investigation_id: str | None = None,
     incident_id: str | None = None,
+    on_event: AgentEventCallback | None = None,
 ) -> str:
     investigation_id = investigation_id or (
         f"INV-{uuid4().hex[:14].upper()}"
@@ -65,6 +73,13 @@ async def run_agent(
         incident_id=incident_id,
         outcome="started",
     )
+
+    if on_event:
+        await on_event({
+            "event": "investigation_started",
+            "investigation_id": investigation_id,
+            "incident_id": incident_id,
+        })
 
     session_service = InMemorySessionService()
     session_id = f"investigation-{uuid4().hex[:12]}"
@@ -121,6 +136,13 @@ async def run_agent(
                             outcome="started",
                         )
 
+                        if on_event:
+                            await on_event({
+                                "event": "tool_called",
+                                "tool_name": function_call.name,
+                                "outcome": "started",
+                            })
+
                     if function_response:
                         failed = _tool_result_failed(
                             function_response
@@ -147,6 +169,21 @@ async def run_agent(
                             ),
                         )
 
+                        if on_event:
+                            await on_event({
+                                "event": (
+                                    "tool_failed"
+                                    if failed
+                                    else "tool_succeeded"
+                                ),
+                                "tool_name": function_response.name,
+                                "outcome": (
+                                    "failure"
+                                    if failed
+                                    else "success"
+                                ),
+                            })
+
             if (
                 event.is_final_response()
                 and event.content
@@ -170,6 +207,13 @@ async def run_agent(
             outcome="success",
             duration_seconds=duration,
         )
+
+        if on_event:
+            await on_event({
+                "event": "investigation_completed",
+                "outcome": "success",
+                "duration_seconds": round(duration, 3),
+            })
 
         return final_text
 
