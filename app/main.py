@@ -9,6 +9,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.api.routes import router
 from app.operator.routes import api_router, page_router
+from app.operator.manager import load_persisted_jobs
 from app.telemetry.logging import configure_json_logging
 from app.telemetry.middleware import RequestTelemetryMiddleware
 from app.telemetry.snapshot import refresh_application_metrics
@@ -21,6 +22,7 @@ configure_json_logging()
 async def lifespan(
     app: FastAPI,
 ) -> AsyncIterator[None]:
+    load_persisted_jobs()
     refresh_application_metrics()
     yield
 

@@ -22,10 +22,89 @@ from scripts.run_investigation_agent import run_agent
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 REPORT_DIR = PROJECT_ROOT / "artifacts" / "investigations"
+STATE_FILE = PROJECT_ROOT / "artifacts" / "operator_jobs.json"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
+STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 _JOBS: dict[str, dict[str, Any]] = {}
 _JOBS_LOCK = asyncio.Lock()
+_PERSIST_LOCK = asyncio.Lock()
+
+
+
+def load_persisted_jobs() -> None:
+    """Restore operator jobs after an application restart."""
+    if not STATE_FILE.exists():
+        return
+
+    try:
+        payload = json.loads(
+            STATE_FILE.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return
+
+    if not isinstance(payload, dict):
+        return
+
+    jobs = payload.get("jobs")
+
+    if not isinstance(jobs, list):
+        return
+
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+
+        investigation_id = job.get("investigation_id")
+
+        if not isinstance(investigation_id, str):
+            continue
+
+        if job.get("status") in {
+            "queued",
+            "creating_incident",
+            "investigating",
+        }:
+            job["status"] = "interrupted"
+            job["error"] = {
+                "type": "ServiceRestart",
+                "message": (
+                    "Investigation was interrupted by an "
+                    "application restart."
+                ),
+            }
+            job.setdefault("timeline", []).append({
+                "timestamp": _now(),
+                "event": "investigation_interrupted",
+                "outcome": "failure",
+                "error_type": "ServiceRestart",
+            })
+
+        _JOBS[investigation_id] = job
+
+
+async def _persist_jobs() -> None:
+    """Write operator state atomically."""
+    async with _PERSIST_LOCK:
+        async with _JOBS_LOCK:
+            jobs = deepcopy(list(_JOBS.values()))
+
+        payload = {
+            "version": 1,
+            "updated_at": _now(),
+            "jobs": jobs,
+        }
+
+        temporary_path = STATE_FILE.with_suffix(".json.tmp")
+
+        temporary_path.write_text(
+            json.dumps(payload, indent=2),
+            encoding="utf-8",
+        )
+
+        temporary_path.replace(STATE_FILE)
+
 
 
 def _now() -> str:
@@ -47,6 +126,8 @@ async def _append_timeline(
         if job is not None:
             job["timeline"].append(entry)
             job["updated_at"] = entry["timestamp"]
+
+    await _persist_jobs()
 
 
 def _grafana_links(
@@ -119,6 +200,8 @@ async def create_investigation(
 
     async with _JOBS_LOCK:
         _JOBS[investigation_id] = job
+
+    await _persist_jobs()
 
     asyncio.create_task(
         _run_investigation(
@@ -308,6 +391,8 @@ async def _update_job(
 
         job.update(values)
         job["updated_at"] = _now()
+
+    await _persist_jobs()
 
 
 async def get_investigation(

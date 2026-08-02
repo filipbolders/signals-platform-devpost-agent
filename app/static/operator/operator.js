@@ -8,10 +8,17 @@ const tokenDialog = document.getElementById("tokenDialog");
 const tokenInput = document.getElementById("tokenInput");
 const saveTokenButton = document.getElementById("saveTokenButton");
 const launchButton = document.getElementById("launchButton");
+const refreshHistoryButton =
+  document.getElementById("refreshHistoryButton");
+const downloadMarkdown =
+  document.getElementById("downloadMarkdown");
+const downloadJson =
+  document.getElementById("downloadJson");
 
 function unlock() {
   if (state.token) {
     tokenDialog.classList.add("unlocked");
+    loadHistory();
   }
 }
 
@@ -98,8 +105,11 @@ function startPolling() {
 
       render(job);
 
-      if (["completed", "failed"].includes(job.status)) {
+      if (
+        ["completed", "failed", "interrupted"].includes(job.status)
+      ) {
         clearInterval(state.polling);
+        loadHistory();
       }
     } catch (error) {
       console.error(error);
@@ -122,6 +132,20 @@ function render(job) {
     (job.error
       ? `${job.error.type}: ${job.error.message}`
       : "Gemini report will appear when the investigation completes.");
+
+  const actions = document.getElementById("reportActions");
+
+  if (job.report_files) {
+    actions.classList.remove("hidden");
+
+    downloadMarkdown.onclick = () =>
+      downloadReport(job.investigation_id, "markdown");
+
+    downloadJson.onclick = () =>
+      downloadReport(job.investigation_id, "json");
+  } else {
+    actions.classList.add("hidden");
+  }
 }
 
 function renderIncident(incident) {
@@ -235,3 +259,133 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+
+refreshHistoryButton.addEventListener("click", loadHistory);
+
+async function loadHistory() {
+  if (!state.token) {
+    return;
+  }
+
+  try {
+    const payload = await api("/api/operator/investigations");
+    renderHistory(payload.investigations || []);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function renderHistory(investigations) {
+  const container = document.getElementById("historyList");
+
+  if (!investigations.length) {
+    container.innerHTML =
+      '<p class="muted">No stored investigations yet.</p>';
+    return;
+  }
+
+  container.innerHTML = investigations.map(job => `
+    <article class="history-item">
+      <div class="history-value">
+        <span class="history-label">Investigation</span>
+        ${escapeHtml(job.investigation_id)}
+      </div>
+
+      <div class="history-value">
+        <span class="history-label">Incident</span>
+        ${escapeHtml(job.incident?.incident_id || "—")}
+      </div>
+
+      <div class="history-value">
+        <span class="history-label">Module</span>
+        ${escapeHtml(job.incident?.module_id || job.module_id || "—")}
+      </div>
+
+      <div class="history-value">
+        <span class="history-label">Status</span>
+        <span class="history-status ${escapeHtml(job.status)}">
+          ${escapeHtml(formatStatus(job.status))}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        data-investigation-id="${escapeHtml(job.investigation_id)}"
+      >
+        Open
+      </button>
+    </article>
+  `).join("");
+
+  container.querySelectorAll("[data-investigation-id]")
+    .forEach(button => {
+      button.addEventListener("click", async () => {
+        const investigationId =
+          button.dataset.investigationId;
+
+        const job = await api(
+          `/api/operator/investigations/${investigationId}`
+        );
+
+        state.investigationId = investigationId;
+
+        document.getElementById("emptyState")
+          .classList.add("hidden");
+
+        document.getElementById("workspace")
+          .classList.remove("hidden");
+
+        render(job);
+
+        window.scrollTo({
+          top: document.getElementById("workspace").offsetTop - 20,
+          behavior: "smooth",
+        });
+
+        if (
+          !["completed", "failed", "interrupted"]
+            .includes(job.status)
+        ) {
+          startPolling();
+        }
+      });
+    });
+}
+
+async function downloadReport(investigationId, format) {
+  const response = await fetch(
+    `/api/operator/investigations/${investigationId}` +
+    `/reports/${format}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${state.token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Report download failed: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const disposition =
+    response.headers.get("Content-Disposition") || "";
+
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  const filename = match
+    ? match[1]
+    : `${investigationId}.${format === "json" ? "json" : "md"}`;
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+
+  URL.revokeObjectURL(url);
+}
+

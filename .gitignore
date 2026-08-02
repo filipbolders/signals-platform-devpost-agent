@@ -52,3 +52,7 @@ dist/
 
 # Generated investigation reports
 artifacts/investigations/
+
+# Operator runtime state
+artifacts/operator_jobs.json
+artifacts/operator_jobs.json.tmp

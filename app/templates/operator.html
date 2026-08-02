@@ -155,10 +155,35 @@
               <h2>Investigation result</h2>
             </div>
           </header>
+          <div id="reportActions" class="report-actions hidden">
+            <button id="downloadMarkdown" type="button">
+              Download Markdown
+            </button>
+            <button id="downloadJson" type="button">
+              Download JSON
+            </button>
+          </div>
+
           <div id="report" class="report">
             Gemini report will appear when the investigation completes.
           </div>
         </article>
+      </div>
+    </section>
+
+    <section class="history-section">
+      <header class="history-header">
+        <div>
+          <p class="section-label">INVESTIGATION ARCHIVE</p>
+          <h2>Recent investigations</h2>
+        </div>
+        <button id="refreshHistoryButton" type="button">
+          Refresh history
+        </button>
+      </header>
+
+      <div id="historyList" class="history-list">
+        <p class="muted">No stored investigations yet.</p>
       </div>
     </section>
   </main>
