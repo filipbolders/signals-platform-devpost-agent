@@ -6,3 +6,7 @@ pytest>=8.4,<9.0
 pytest-asyncio>=1.1,<2.0
 pyyaml>=6.0,<7.0
 uvicorn[standard]>=0.35,<1.0
+prometheus-client>=0.22,<1.0
+google-auth>=2,<3
+google-genai>=1,<2
+google-adk>=2,<3
