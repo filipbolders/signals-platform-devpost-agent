@@ -108,3 +108,24 @@ class SyntheticIncidentRequest(StrictModel):
         "telescope-dslr-observation",
     ] = "object-tracker"
     severity: Severity = Severity.MEDIUM
+
+
+class AgentEventType(str, Enum):
+    INVESTIGATION_STARTED = "investigation_started"
+    TOOL_CALLED = "tool_called"
+    TOOL_SUCCEEDED = "tool_succeeded"
+    TOOL_FAILED = "tool_failed"
+    INVESTIGATION_COMPLETED = "investigation_completed"
+    INVESTIGATION_FAILED = "investigation_failed"
+    REPORT_SAVED = "report_saved"
+
+
+class AgentTelemetryEvent(StrictModel):
+    event_type: AgentEventType
+    investigation_id: Annotated[str, Field(min_length=8, max_length=80)]
+    incident_id: Annotated[str | None, Field(max_length=80)] = None
+    tool_name: Annotated[str | None, Field(max_length=120)] = None
+    outcome: Literal["started", "success", "failure"] | None = None
+    duration_seconds: Annotated[float | None, Field(ge=0)] = None
+    error_type: Annotated[str | None, Field(max_length=160)] = None
+    report_path: Annotated[str | None, Field(max_length=300)] = None

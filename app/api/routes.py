@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -13,9 +14,22 @@ from app.models.contracts import (
     PlatformHealth,
     SyntheticIncidentRequest,
     TelemetrySummary,
+    AgentTelemetryEvent,
+    AgentEventType,
 )
 from app.services.mock_store import mock_store
 from app.services.settings import settings
+from app.telemetry.metrics import (
+    SYNTHETIC_INCIDENTS_CREATED_TOTAL,
+    AGENT_INVESTIGATIONS_TOTAL,
+    AGENT_INVESTIGATION_DURATION_SECONDS,
+    AGENT_TOOL_CALLS_TOTAL,
+    AGENT_TOOL_RESULTS_TOTAL,
+    AGENT_REPORTS_SAVED_TOTAL,
+)
+
+
+logger = logging.getLogger("signals.agent.telemetry")
 
 
 router = APIRouter(
@@ -124,4 +138,103 @@ async def create_synthetic_incident(
             detail="Demo mode is disabled",
         )
 
-    return mock_store.create_synthetic_incident(request)
+    incident = mock_store.create_synthetic_incident(request)
+
+    SYNTHETIC_INCIDENTS_CREATED_TOTAL.labels(
+        scenario=request.scenario.value,
+        module_id=request.module_id,
+        severity=request.severity.value,
+    ).inc()
+
+    logger.warning(
+        "synthetic_incident_created",
+        extra={
+            "event": "synthetic_incident_created",
+            "incident_id": incident.incident_id,
+            "module_id": incident.module_id,
+            "scenario": request.scenario.value,
+            "severity": request.severity.value,
+            "incident_status": incident.status.value,
+            "synthetic": True,
+        },
+    )
+
+    return incident
+
+
+@router.post(
+    "/internal/agent-events",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+)
+async def record_agent_event(
+    event: AgentTelemetryEvent,
+) -> None:
+    if event.event_type == AgentEventType.INVESTIGATION_STARTED:
+        AGENT_INVESTIGATIONS_TOTAL.labels(
+            outcome="started",
+        ).inc()
+
+    elif event.event_type == AgentEventType.INVESTIGATION_COMPLETED:
+        AGENT_INVESTIGATIONS_TOTAL.labels(
+            outcome="success",
+        ).inc()
+
+        if event.duration_seconds is not None:
+            AGENT_INVESTIGATION_DURATION_SECONDS.observe(
+                event.duration_seconds
+            )
+
+    elif event.event_type == AgentEventType.INVESTIGATION_FAILED:
+        AGENT_INVESTIGATIONS_TOTAL.labels(
+            outcome="failure",
+        ).inc()
+
+        if event.duration_seconds is not None:
+            AGENT_INVESTIGATION_DURATION_SECONDS.observe(
+                event.duration_seconds
+            )
+
+    elif (
+        event.event_type == AgentEventType.TOOL_CALLED
+        and event.tool_name
+    ):
+        AGENT_TOOL_CALLS_TOTAL.labels(
+            tool_name=event.tool_name,
+        ).inc()
+
+    elif (
+        event.event_type
+        in {
+            AgentEventType.TOOL_SUCCEEDED,
+            AgentEventType.TOOL_FAILED,
+        }
+        and event.tool_name
+    ):
+        outcome = (
+            "success"
+            if event.event_type == AgentEventType.TOOL_SUCCEEDED
+            else "failure"
+        )
+
+        AGENT_TOOL_RESULTS_TOTAL.labels(
+            tool_name=event.tool_name,
+            outcome=outcome,
+        ).inc()
+
+    elif event.event_type == AgentEventType.REPORT_SAVED:
+        AGENT_REPORTS_SAVED_TOTAL.inc()
+
+    logger.info(
+        event.event_type.value,
+        extra={
+            "event": event.event_type.value,
+            "investigation_id": event.investigation_id,
+            "incident_id": event.incident_id,
+            "tool_name": event.tool_name,
+            "outcome": event.outcome,
+            "duration_seconds": event.duration_seconds,
+            "error_type": event.error_type,
+            "report_path": event.report_path,
+        },
+    )

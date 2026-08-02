@@ -49,3 +49,6 @@ dist/
 *.tmp
 *.swp
 *~
+
+# Generated investigation reports
+artifacts/investigations/
